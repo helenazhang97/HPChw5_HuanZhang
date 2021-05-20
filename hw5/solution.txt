@@ -1,0 +1,23 @@
+I chose problem 1 in hw5.
+
+(a) vector vector innerproduct of length N:
+
+output for vecvec.cu:
+N=33554432
+CPU Bandwidth = 9.628533 GB/s
+GPU Bandwidth = 64.801918 GB/s
+Error = 0.000000
+
+The GPU is working well for long vector as given.
+
+
+(b) matrix of N x N and vector of length N multiplication:
+output for matvec.cu:
+
+N=100000
+CPU Bandwidth = 21.272700 GB/s
+GPU Bandwidth = 8.482150 GB/s
+Error = 0.000000
+
+The results are correct but GPU is still not as good as CPU performance. My guess is that I am using the GPU kernel inside a loop from 0 to N-1. That needs me to call the kernel for 1e5 times, and I guess this set-up really takes lots of extra time compared with the computation part. This is the easiest version of matrix-vector product approch, and I am pretty sure this is not the best one in practice.
+
