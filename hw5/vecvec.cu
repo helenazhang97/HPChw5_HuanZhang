@@ -143,7 +143,7 @@ __global__ void reduction_kernel2(double* sum, const double* a, long N){
 }
 int main() {
   long N = (1UL<<25);
-
+  printf("N=%d\n", N);
   double *x;
   double *y; // we want to compute the inner product of x and y
   cudaMallocHost((void**)&x, N * sizeof(double));

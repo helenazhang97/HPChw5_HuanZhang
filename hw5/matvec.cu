@@ -9,7 +9,7 @@ void matvec(double* y, const double* A, const double* x, long N){
   for (long i = 0; i < N; i++){
   	sum=0.0;
 	for (long j=0;j<N;j++){
-		sum += A[i+j*N]*x[j];	
+		sum += A[N*i+j]*x[j];	
 	}
 	y[i]=sum;
   } 
@@ -125,7 +125,7 @@ __global__ void innerprod_kernel2(double* sum, const double* a, const double* b,
   }
 }
 
-__global__ void reduction_kernel2(double* sum, const double* a, long N){
+__global__ void reduction_kernel2(double* sum, const double* a, double* y_d, long N){
   __shared__ double smem[BLOCK_SIZE];
   int idx = (blockIdx.x) * blockDim.x + threadIdx.x;
 
@@ -152,7 +152,7 @@ __global__ void reduction_kernel2(double* sum, const double* a, long N){
     __syncwarp();
     smem[threadIdx.x] += smem[threadIdx.x +   2];
     __syncwarp();
-    if (threadIdx.x == 0) sum[blockIdx.x] = smem[0] + smem[1];
+    if (threadIdx.x == 0) {sum[blockIdx.x] = smem[0] + smem[1];y_d[0]=sum[blockIdx.x];}
   }
 }
 
@@ -169,8 +169,8 @@ __global__ void matvec_kernel(double *y, const double *A, const double *x, long 
 }
 
 int main() {
-  long N = 2048;
-
+  long N = 1e5;
+  long N0=N;
   double *x;
   double *y; // we want to compute the inner product of x and y
   double *A;
@@ -190,30 +190,49 @@ int main() {
 
   double sum;
   double tt = omp_get_wtime();
-  matvec(y_ref, A, x, N);
-  printf("CPU Bandwidth = %f GB/s\n", 1*N*sizeof(double) / (omp_get_wtime()-tt)/1e9);
+  matvec(y_ref, A, x, N);//A[N*i+j] is A(i,j)
+  printf("CPU Bandwidth = %f GB/s\n", 1*N0*N0*sizeof(double) / (omp_get_wtime()-tt)/1e9);
 
   double *x_d, *y_d, *z_d, *A_d;
   cudaMalloc(&x_d, N*sizeof(double));
-  cudaMalloc(&A_d, N*N*sizeof(double));
+  cudaMalloc(&A_d, N*sizeof(double));
   cudaMalloc(&y_d, N*sizeof(double));
- 
   long N_work = 1;
   for (long i = (N+BLOCK_SIZE-1)/(BLOCK_SIZE); i > 1; i = (i+BLOCK_SIZE-1)/(BLOCK_SIZE)) N_work += i;
   cudaMalloc(&z_d, N_work*sizeof(double)); // extra memory buffer for reduction across thread-blocks
   cudaMemcpyAsync(x_d, x, N*sizeof(double), cudaMemcpyHostToDevice);
-  cudaMemcpyAsync(A_d, A, N*N*sizeof(double), cudaMemcpyHostToDevice);
-  
+  cudaMemcpyAsync(y_d, y, N*sizeof(double), cudaMemcpyHostToDevice);
   cudaDeviceSynchronize();
   tt = omp_get_wtime();
 
+  for (long k=0;k<N0;k++){
+	N=N0;
+	cudaMemcpyAsync(A_d, A+k*N, N*sizeof(double), cudaMemcpyHostToDevice);
+	double* sum_d = z_d;
+  	long Nb = (N+BLOCK_SIZE-1)/(BLOCK_SIZE);
+  	innerprod_kernel2<<<Nb,BLOCK_SIZE>>>(sum_d, A_d,x_d, N);
+
+	while (Nb > 1) {
+  	  long N = Nb;
+  	  Nb = (Nb+BLOCK_SIZE-1)/(BLOCK_SIZE);
+  	  sum_d += N;
+	  reduction_kernel2<<<Nb,BLOCK_SIZE>>>(sum_d, sum_d - N,y_d+k, N);
+	}
+  }
+	cudaMemcpyAsync(y, y_d, N0*sizeof(double), cudaMemcpyDeviceToHost);
+
+ /* 
   long Nb = (N+BLOCK_SIZE-1)/(BLOCK_SIZE);
   matvec_kernel<<<Nb,BLOCK_SIZE>>>(y_d,A_d,x_d,N);
   cudaMemcpyAsync(y, y_d, N*sizeof(double), cudaMemcpyDeviceToHost);
+*/
 
   cudaDeviceSynchronize();
-  printf("GPU Bandwidth = %f GB/s\n", 1*N*sizeof(double) / (omp_get_wtime()-tt)/1e9);
-  printf("Error = %f\n",cuda_error(y_ref, y, N));
+  printf("GPU Bandwidth = %f GB/s\n", 1*N0*N0*sizeof(double) / (omp_get_wtime()-tt)/1e9);
+  printf("Error = %f\n",cuda_error(y_ref, y, N0));
+   for (int i=0;i<20;i++){
+  	std::cout<<y_ref[i]<<" "<<y[i]<<std::endl;
+  } 
   cudaFree(x_d);
   cudaFree(y_d);
   cudaFree(z_d);
@@ -221,6 +240,7 @@ int main() {
   cudaFreeHost(x);
   cudaFreeHost(y);
   cudaFreeHost(A);
+  cudaFreeHost(y_ref);
   return 0;
 }
 
