@@ -1,4 +1,4 @@
-I chose problem 1 in hw5.
+I chose problem 1 in hw5. All the scripts are run on cuda1.cims.nyu.edu. But they ran into segmentation fault (core dumped) on cuda3....
 
 (a) vector vector innerproduct of length N:
 
